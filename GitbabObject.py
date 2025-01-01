@@ -1,9 +1,10 @@
 import collections
 import hashlib
 import os
+import re
 import zlib
 
-from GitBab.GitbabRepo import repo_file
+from GitBab.GitbabRepo import ref_resolve, repo_directory, repo_file
 
 class GitbabObject(object):
     def __init__(self, data=None):
@@ -234,3 +235,64 @@ def object_hash(f, fmt, repo=None):
         raise Exception("Unknown type {}".format(fmt))
 
     return object_write(obj, repo)
+
+def object_resolve(repo, name):
+    candidates = list()
+    hashRE = re.compile(r"^[0-9A-Fa-f]{4,40}$")
+
+    if not name.strip():
+        return None
+
+    if name == "HEAD":
+        return [ ref_resolve(repo, "HEAD") ]
+
+
+    if hashRE.match(name):
+        name = name.lower()
+        prefix = name[0:2]
+        path = repo_directory(repo, "objects", prefix, mkdir=False)
+        if path:
+            rem = name[2:]
+            for f in os.listdir(path):
+                if f.startswith(rem):
+                    candidates.append(prefix + f)
+
+    as_tag = ref_resolve(repo, "refs/tags/" + name)
+    if as_tag: 
+        candidates.append(as_tag)
+
+    as_branch = ref_resolve(repo, "refs/heads/" + name)
+    if as_branch:
+        candidates.append(as_branch)
+
+    return candidates
+
+def object_find(repo, name, fmt=None, follow=True):
+      sha = object_resolve(repo, name)
+
+      if not sha:
+          raise Exception("No such reference {0}.".format(name))
+
+      if len(sha) > 1:
+          raise Exception("Ambiguous reference {0}: Candidates are:\n - {1}.".format(name,  "\n - ".join(sha)))
+
+      sha = sha[0]
+
+      if not fmt:
+          return sha
+
+      while True:
+          obj = object_read(repo, sha)
+
+          if obj.fmt == fmt:
+              return sha
+
+          if not follow:
+              return None
+
+          if obj.fmt == b'tag':
+                sha = obj.kvlm[b'object'].decode("ascii")
+          elif obj.fmt == b'commit' and fmt == b'tree':
+                sha = obj.kvlm[b'tree'].decode("ascii")
+          else:
+              return None
