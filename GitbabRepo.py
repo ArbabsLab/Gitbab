@@ -30,62 +30,76 @@ class GitbabRepository(object):
         elif not force:
             raise Exception("Config file missing")
         
-        def repo_path(repo, *path):
-            return os.path.join(repo.gitdir, *path)
-            
-        def repo_file(repo, *path, mkdir=False):
-            if repo_directory(repo, *path, mkdir=False):
-                return repo_path(repo, *path)
-            
-        def repo_directory(repo, *path, mkdir=False):
-            path = repo_path(repo, *path)
+def repo_path(repo, *path):
+    return os.path.join(repo.gitdir, *path)
+    
+def repo_file(repo, *path, mkdir=False):
+    if repo_directory(repo, *path, mkdir=False):
+        return repo_path(repo, *path)
+    
+def repo_directory(repo, *path, mkdir=False):
+    path = repo_path(repo, *path)
 
-            if os.path.exists(path):
-                if (os.path.isdir(path)):
-                    return path
-                else:
-                    raise Exception(f"Not a directory {path}")
-                
-            if mkdir:
-                os.makedirs(path)
-                return path
-            else:
-                return None
-            
-        def repo_create(path):
-            repo = GitbabRepository(path, True)
-            if os.path.exists(repo.worktree):
-                if not os.path.isdir(repo.worktree):
-                    raise Exception (f"{path} is not a directory!")
-                if os.path.exists(repo.gitdir) and os.listdir(repo.gitdir):
-                    raise Exception(f"{path} is not empty!")
-            else:
-                os.makedirs(repo.worktree)
-
-            assert repo_directory(repo, "branches", mkdir=True)
-            assert repo_directory(repo, "objects", mkdir=True)
-            assert repo_directory(repo, "refs", "tags", mkdir=True)
-            assert repo_directory(repo, "refs", "heads", mkdir=True)
-
-            with open(repo_file(repo, "description"), "w") as f:
-                f.write("Unnamed repository; edit this file 'description' to name the repository.\n")
-
-            with open(repo_file(repo, "HEAD"), "w") as f:
-                f.write("ref: refs/heads/master\n")
-
-            with open(repo_file(repo, "config"), "w") as f:
-                config = repo_default_config()
-                config.write(f)
-
-            return repo
+    if os.path.exists(path):
+        if (os.path.isdir(path)):
+            return path
+        else:
+            raise Exception(f"Not a directory {path}")
         
-        def repo_default_config():
-            ret = configparser.ConfigParser()
+    if mkdir:
+        os.makedirs(path)
+        return path
+    else:
+        return None
+    
+def repo_create(path):
+    repo = GitbabRepository(path, True)
+    if os.path.exists(repo.worktree):
+        if not os.path.isdir(repo.worktree):
+            raise Exception (f"{path} is not a directory!")
+        if os.path.exists(repo.gitdir) and os.listdir(repo.gitdir):
+            raise Exception(f"{path} is not empty!")
+    else:
+        os.makedirs(repo.worktree)
 
-            ret.add_section("core")
-            ret.set("core", "repositoryformatversion", "0")
-            ret.set("core", "filemode", "false")
-            ret.set("core", "bare", "false")
+    assert repo_directory(repo, "branches", mkdir=True)
+    assert repo_directory(repo, "objects", mkdir=True)
+    assert repo_directory(repo, "refs", "tags", mkdir=True)
+    assert repo_directory(repo, "refs", "heads", mkdir=True)
 
-            return ret        
-        
+    with open(repo_file(repo, "description"), "w") as f:
+        f.write("Unnamed repository; edit this file 'description' to name the repository.\n")
+
+    with open(repo_file(repo, "HEAD"), "w") as f:
+        f.write("ref: refs/heads/master\n")
+
+    with open(repo_file(repo, "config"), "w") as f:
+        config = repo_default_config()
+        config.write(f)
+
+    return repo
+
+def repo_default_config():
+    ret = configparser.ConfigParser()
+
+    ret.add_section("core")
+    ret.set("core", "repositoryformatversion", "0")
+    ret.set("core", "filemode", "false")
+    ret.set("core", "bare", "false")
+
+    return ret        
+    
+def repo_find(path=".", required=True):
+    path = os.path.realpath(path)
+
+    if os.path.isdir(os.path.join(path, ".git")):
+        return GitbabRepository(path)
+    
+    parent = os.path.realpath(os.path.join(path, ".."))
+    if parent == path:
+        if required:
+            raise Exception("No git directory.")
+        else:
+            return None
+
+    return repo_find(parent, required)
