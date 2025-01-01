@@ -2,9 +2,11 @@ import argparse
 import collections
 from datetime import datetime
 from fnmatch import fnmatch
+import grp
 import os
+import pwd
 import sys
-from GitBab.GitbabObject import GitTag, object_find, object_hash, object_read, object_write, tree_checkout
+from GitBab.GitbabObject import GitTag, index_read, object_find, object_hash, object_read, object_write, tree_checkout
 import GitbabRepo
         
 parser = argparse.ArgumentParser(description="gitbab: git by Arbab")
@@ -94,6 +96,9 @@ argsp.add_argument("--wyag-type",
 argsp.add_argument("name",
                    help="The name to parse")
 
+argsp = subargparse.add_parser("ls-filebab", help = "List all the stage files")
+argsp.add_argument("--verbose", action="store_true", help="Show everything.")
+
 def main(argv=sys.argv[1:]):
     args = parser.parse_args(argv)
     cmd = args.command
@@ -119,6 +124,8 @@ def main(argv=sys.argv[1:]):
         tagbab(args)
     elif cmd == "rev-parsebab":
         rev_parsebab(args)
+    elif cmd == "ls-filebab":
+        ls_filebab(args)
     
 
 def initbab(args):
@@ -138,6 +145,35 @@ def hashbab(args):
         sha = object_hash(fd, args.type.encode(), repo)
         print(sha)
 
+def ls_filebab(args):
+    repo = GitbabRepo.repo_find()
+    index = index_read(repo)
+    if args.verbose:
+        print("Index file format v{}, containing {} entries.".format(index.version, len(index.entries)))
+
+    for e in index.entries:
+        print(e.name)
+        if args.verbose:
+            print("  {} with perms: {:o}".format(
+                { 0b1000: "regular file",
+                0b1010: "symlink",
+                0b1110: "git link" }[e.mode_type],
+                e.mode_perms))
+            print("  on blob: {}".format(e.sha))
+            print("  created: {}.{}, modified: {}.{}".format(
+                datetime.fromtimestamp(e.ctime[0])
+                , e.ctime[1]
+                , datetime.fromtimestamp(e.mtime[0])
+                , e.mtime[1]))
+            print("  device: {}, inode: {}".format(e.dev, e.ino))
+            print("  user: {} ({})  group: {} ({})".format(
+                pwd.getpwuid(e.uid).pw_name,
+                e.uid,
+                grp.getgrgid(e.gid).gr_name,
+                e.gid))
+            print("  flags: stage={} assume_valid={}".format(
+                e.flag_stage,
+                e.flag_assume_valid))
 def logbab(args):
     repo = GitbabRepo.repo_find()
 
@@ -207,7 +243,7 @@ def rev_parsebab(args):
     repo = GitbabRepo.repo_find()
 
     print (object_find(repo, args.name, fmt, follow=True))
-    
+
 def tagbab(args):
     repo = GitbabRepo.repo_find()
 
