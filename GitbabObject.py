@@ -60,6 +60,9 @@ class GitTreeLeaf (object):
         self.path = path
         self.sha = sha
 
+class GitTag(GitCommit):
+    fmt = b'tag'
+
 def tree_parse_one(raw, start=0):
     x = raw.find(b' ', start)
     assert x-start == 5 or x-start==6

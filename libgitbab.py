@@ -59,6 +59,7 @@ argsp.add_argument("commit",
 argsp.add_argument("path",
                    help="The EMPTY directory to checkout on.")
 
+argsp = subargparse.add_parser("show-ref", help="List references.")
 
 def main(argv=sys.argv[1:]):
     args = parser.parse_args(argv)
@@ -79,6 +80,8 @@ def main(argv=sys.argv[1:]):
         logbab(args)
     elif cmd == "ls-treebab":
         ls_treebab(args)
+    elif cmd == "show-refbab":
+        show_refbab(args)
     
 
 def initbab(args):
@@ -106,11 +109,11 @@ def logbab(args):
     log_graphviz(repo, object_find(repo, args.commit), set())
     print("}")
     
-def cmd_ls_tree(args):
+def ls_treebab(args):
     repo = GitbabRepo.repo_find()
-    ls_treebab(repo, args.tree, args.recursive)
+    ls_treebab_helper(repo, args.tree, args.recursive)
 
-def ls_treebab(repo, ref, recursive=None, prefix=""):
+def ls_treebab_helper(repo, ref, recursive=None, prefix=""):
     sha = object_find(repo, ref, fmt=b"tree")
     obj = object_read(repo, sha)
     for item in obj.items:
@@ -133,7 +136,7 @@ def ls_treebab(repo, ref, recursive=None, prefix=""):
                 item.sha,
                 os.path.join(prefix, item.path)))
         else: 
-            ls_treebab(repo, item.sha, recursive, os.path.join(prefix, item.path))
+            ls_treebab_helper(repo, item.sha, recursive, os.path.join(prefix, item.path))
 
 def checkoutbab(args):
     repo = GitbabRepo.repo_find()
@@ -152,7 +155,22 @@ def checkoutbab(args):
         os.makedirs(args.path)
 
     tree_checkout(repo, obj, os.path.realpath(args.path))
-    
+
+def show_refbab(args):
+    repo = GitbabRepo.repo_find()
+    refs = GitbabRepo.ref_list(repo)
+    show_ref(repo, refs, prefix="refs")
+
+def show_ref(repo, refs, with_hash=True, prefix=""):
+    for k, v in refs.items():
+        if type(v) == str:
+            print ("{0}{1}{2}".format(
+                v + " " if with_hash else "",
+                prefix + "/" if prefix else "",
+                k))
+        else:
+            show_ref(repo, v, with_hash=with_hash, prefix="{0}{1}{2}".format(prefix, "/" if prefix else "", k))
+
 def log_graphviz(repo, sha, seen):
 
     if sha in seen:
@@ -187,7 +205,6 @@ def log_graphviz(repo, sha, seen):
 def cat_file(repo, obj, fmt=None):
     obj = object_read(repo, object_find(repo, obj, fmt=fmt))
     sys.stdout.buffer.write(obj.serialize())
-
 
 
 
