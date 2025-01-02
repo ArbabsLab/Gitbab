@@ -501,8 +501,6 @@ def index_write(repo, index):
         f.write(index.version.to_bytes(4, "big"))
         f.write(len(index.entries).to_bytes(4, "big"))
 
-        # ENTRIES
-
         idx = 0
         for e in index.entries:
             f.write(e.ctime[0].to_bytes(4, "big"))
@@ -519,7 +517,6 @@ def index_write(repo, index):
             f.write(e.gid.to_bytes(4, "big"))
 
             f.write(e.fsize.to_bytes(4, "big"))
-            # @FIXME Convert back to int.
             f.write(int(e.sha, 16).to_bytes(20, "big"))
 
             flag_assume_valid = 0x1 << 15 if e.flag_assume_valid else 0
@@ -531,17 +528,13 @@ def index_write(repo, index):
             else:
                 name_length = bytes_len
 
-            # We merge back three pieces of data (two flags and the
-            # length of the name) on the same two bytes.
             f.write((flag_assume_valid | e.flag_stage | name_length).to_bytes(2, "big"))
 
-            # Write back the name, and a final 0x00.
             f.write(name_bytes)
             f.write((0).to_bytes(1, "big"))
 
             idx += 62 + len(name_bytes) + 1
 
-            # Add padding if necessary.
             if idx % 8 != 0:
                 pad = 8 - (idx % 8)
                 f.write((0).to_bytes(pad, "big"))
