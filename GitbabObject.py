@@ -107,7 +107,15 @@ class GitIndex (object):
 
         self.version = version
         self.entries = entries
-    
+
+class GitIgnore(object):
+    absolute = None
+    scoped = None
+
+    def __init__(self, absolute, scoped):
+        self.absolute = absolute
+        self.scoped = scoped
+
 def tree_parse_one(raw, start=0):
     x = raw.find(b' ', start)
     assert x-start == 5 or x-start==6
@@ -162,6 +170,69 @@ def tree_checkout(repo, tree, path):
             # @TODO Support symlinks (identified by mode 12****)
             with open(dest, 'wb') as f:
                 f.write(obj.blobdata)
+
+def tree_from_index(repo, index):
+    contents = dict()
+    contents[""] = list()
+
+    # Enumerate entries, and turn them into a dictionary where keys
+    # are directories, and values are lists of directory contents.
+    for entry in index.entries:
+        dirname = os.path.dirname(entry.name)
+
+        # We create all dictonary entries up to root ("").  We need
+        # them *all*, because even if a directory holds no files it
+        # will contain at least a tree.
+        key = dirname
+        while key != "":
+            if not key in contents:
+                contents[key] = list()
+            key = os.path.dirname(key)
+
+        # For now, simply store the entry in the list.
+        contents[dirname].append(entry)
+
+    # Get keys (= directories) and sort them by length, descending.
+    # This means that we'll always encounter a given path before its
+    # parent, which is all we need, since for each directory D we'll
+    # need to modify its parent P to add D's tree.
+    sorted_paths = sorted(contents.keys(), key=len, reverse=True)
+
+    # This variable will store the current tree's SHA-1.  After we're
+    # done iterating over our dict, it will contain the hash for the
+    # root tree.
+    sha = None
+
+    # We ge through the sorted list of paths (dict keys)
+    for path in sorted_paths:
+        # Prepare a new, empty tree object
+        tree = GitTree()
+
+        # Add each entry to our new tree, in turn
+        for entry in contents[path]:
+            # An entry can be a normal GitIndexEntry read from the
+            # index, or a tree we've created.
+            if isinstance(entry, GitIndexEntry): # Regular entry (a file)
+
+                # We transcode the mode: the entry stores it as integers,
+                # we need an octal ASCII representation for the tree.
+                leaf_mode = "{:02o}{:04o}".format(entry.mode_type, entry.mode_perms).encode("ascii")
+                leaf = GitTreeLeaf(mode = leaf_mode, path=os.path.basename(entry.name), sha=entry.sha)
+            else: # Tree.  We've stored it as a pair: (basename, SHA)
+                leaf = GitTreeLeaf(mode = b"040000", path=entry[0], sha=entry[1])
+
+            tree.items.append(leaf)
+
+        # Write the new tree object to the store.
+        sha = object_write(tree, repo)
+
+        # Add the new tree hash to the current dictionary's parent, as
+        # a pair (basename, SHA)
+        parent = os.path.dirname(path)
+        base = os.path.basename(path) # The name without the path, eg main.go for src/main.go
+        contents[parent].append((base, sha))
+
+    return sha
 
 def kvlm_serialize(kvlm):
     ret = b''
@@ -421,3 +492,57 @@ def index_read(repo):
                                      name=name))
 
     return GitIndex(version=version, entries=entries)
+
+def index_write(repo, index):
+    with open(repo_file(repo, "index"), "wb") as f:
+
+
+        f.write(b"DIRC")
+        f.write(index.version.to_bytes(4, "big"))
+        f.write(len(index.entries).to_bytes(4, "big"))
+
+        # ENTRIES
+
+        idx = 0
+        for e in index.entries:
+            f.write(e.ctime[0].to_bytes(4, "big"))
+            f.write(e.ctime[1].to_bytes(4, "big"))
+            f.write(e.mtime[0].to_bytes(4, "big"))
+            f.write(e.mtime[1].to_bytes(4, "big"))
+            f.write(e.dev.to_bytes(4, "big"))
+            f.write(e.ino.to_bytes(4, "big"))
+
+            mode = (e.mode_type << 12) | e.mode_perms
+            f.write(mode.to_bytes(4, "big"))
+
+            f.write(e.uid.to_bytes(4, "big"))
+            f.write(e.gid.to_bytes(4, "big"))
+
+            f.write(e.fsize.to_bytes(4, "big"))
+            # @FIXME Convert back to int.
+            f.write(int(e.sha, 16).to_bytes(20, "big"))
+
+            flag_assume_valid = 0x1 << 15 if e.flag_assume_valid else 0
+
+            name_bytes = e.name.encode("utf8")
+            bytes_len = len(name_bytes)
+            if bytes_len >= 0xFFF:
+                name_length = 0xFFF
+            else:
+                name_length = bytes_len
+
+            # We merge back three pieces of data (two flags and the
+            # length of the name) on the same two bytes.
+            f.write((flag_assume_valid | e.flag_stage | name_length).to_bytes(2, "big"))
+
+            # Write back the name, and a final 0x00.
+            f.write(name_bytes)
+            f.write((0).to_bytes(1, "big"))
+
+            idx += 62 + len(name_bytes) + 1
+
+            # Add padding if necessary.
+            if idx % 8 != 0:
+                pad = 8 - (idx % 8)
+                f.write((0).to_bytes(pad, "big"))
+                idx += pad
